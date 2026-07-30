@@ -8,6 +8,14 @@ The public API is a compatibility promise from `0.1.0` onward.
 
 ## [Unreleased]
 
+### Added
+
+- **Re-send one notification from the admin.** A "Re-send" button on every changelist row and
+  "Re-send now" in the change form's submit row, alongside the existing "Re-send selected" bulk
+  action. Both post to `<pk>/resend/`, which refuses anything but `POST` — a URL that delivers mail
+  must not be reachable by following a link — and both require `change_notification`. Pressing the
+  change-form button saves nothing.
+
 ### Changed
 
 - `notifier_retry_failed` gained `--include-sending`, to reclaim rows stranded at `sending` by a

@@ -1171,6 +1171,29 @@ All four models registered. `Notification` admin: filters on channel/status/crea
 `rendered_*` and `send_attempts`, inline `NotificationLog` (readonly), and a
 **"Re-send selected"** action.
 
+Re-sending is also reachable one row at a time: a **"Re-send"** button in every changelist row, and
+**"Re-send now"** in the change form's submit row. Selecting a checkbox to re-drive a single row is
+the common case, and from an open change form it means navigating away first.
+
+All three entry points call `Notification.resend()` — no second send path
+([§5.2](#52-the-two-paths)) — and all three **POST**, to `<pk>/resend/`, which returns `405` on
+anything else. Delivery must not hang off a URL something can follow unattended: a link-prefetching
+browser, a crawler that got the address from a pasted screenshot, or a second click on a copied link
+would each put real mail in front of a customer. The row button therefore carries no form of its
+own — the changelist already *is* one form and forms cannot nest, so the button borrows that form's
+CSRF token through `formaction`. The change form button does the same, which is why pressing it
+saves nothing.
+
+Neither button renders without `change_notification`, and `resend_view` re-checks the permission
+against the object, so a button in a page loaded before a permission change cannot send. With no
+usable `Referer` — `Referrer-Policy: no-referrer`, or an off-site value that must never be
+redirected to — the redirect falls back to the change page.
+
+The buttons live in `notifier/templates/admin/notifier/notification/change_form.html`, the first
+path `ModelAdmin` looks up, so a host project's own template of that name still wins (`DIRS` is
+searched before app directories). Neither the template nor `admin.py` loads on a headless install
+([§2.10](#210-runs-on-a-service-with-no-users-no-auth-and-no-admin)).
+
 ### 7.3 Management commands
 
 | Command | Purpose |
@@ -1231,6 +1254,7 @@ Each row maps to one test. IDs are stable and referenced by [§10 Milestones](#1
 | AC-43 | Rendering | A self-closing `<style/>` / `<title/>` / `<pre/>` does not discard the rest of the derived plaintext. |
 | AC-44 | Email | In `separate` mode a total retryable outage re-raises so retries engage, while a partial success never does. |
 | AC-45 | Delivery | One channel's broken backend does not strand a sibling's pending dispatch, and a broker outage does not escape into the caller's `save()`. |
+| AC-46 | Admin | The per-object re-send button posts and only posts: a `GET` on `<pk>/resend/` delivers nothing, and view-only staff neither see the button on the changelist or the change form nor can post to it. |
 | AC-31 | SMS | Three numbers produce one `Notification` and one log row, with a per-number entry in `provider_response`. |
 | AC-32 | Constraints | 501 recipients raises `IntegrityError`; 500 saves; `clean()` raises `ValidationError` at 501 with a readable message. |
 | AC-33 | Rendering | A template using `{% for %}`, a filter and autoescaping renders identically to the same string through `Engine.from_string`; `{{ request }}` renders empty. |
