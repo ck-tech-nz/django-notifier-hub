@@ -28,9 +28,9 @@ project have Celery". A row reaching `status="ready"` is what causes delivery.
 | Hard dependencies | Django only (`[celery]` extra for async delivery) |
 | Licence | MIT |
 
-> **Status: pre-release.** All four milestones are implemented and tested (219 tests, both a full
-> and a headless Django configuration), but `0.1.0` is not published yet. The public API is a
-> compatibility promise from `0.1.0` onward, not before.
+> **Status: `0.1.0`, the first release.** All four milestones are implemented and tested (227 tests,
+> both a full and a headless Django configuration). The public API is a compatibility promise from
+> `0.1.0` onward.
 
 ## Requirements, in full
 

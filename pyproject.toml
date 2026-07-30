@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "django-notifier-hub"
-version = "0.1.0.dev0"
+version = "0.1.0"
 description = "Turn a persisted Notification row into a delivered email, SMS or in-site message, with an audit trail of every attempt. PostgreSQL only."
 readme = "README.md"
 requires-python = ">=3.13"

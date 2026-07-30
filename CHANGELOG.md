@@ -6,47 +6,7 @@ All notable changes to this project are documented here. The format follows
 
 The public API is a compatibility promise from `0.1.0` onward.
 
-## [Unreleased]
-
-### Added
-
-- **Re-send one notification from the admin.** A "Re-send" button on every changelist row and
-  "Re-send now" in the change form's submit row, alongside the existing "Re-send selected" bulk
-  action. Both post to `<pk>/resend/`, which refuses anything but `POST` — a URL that delivers mail
-  must not be reachable by following a link — and both require `change_notification`. Pressing the
-  change-form button saves nothing.
-
-### Changed
-
-- `notifier_retry_failed` gained `--include-sending`, to reclaim rows stranded at `sending` by a
-  worker that died mid-delivery. It requires `--older-than`, because a row a live worker is
-  legitimately working on is indistinguishable from a stranded one.
-
-### Fixed
-
-- **`loaddata` no longer sends.** The `post_save` receiver ignored Django's `raw=True`, so restoring
-  a fixture or a serialized backup containing `status="ready"` rows delivered every one of them for
-  real.
-- **`notifier.E002` no longer blocks multi-database projects.** It checked every `DATABASES` alias
-  rather than the one the router sends notifier's writes to, so an unrelated legacy MySQL or
-  analytics SQLite connection made every management command fail.
-- **One channel's failure no longer strands its siblings.** Dispatch is registered with
-  `on_commit(..., robust=True)`, and the Celery enqueue is guarded, so a broken backend or a broker
-  outage cannot silently discard the pending dispatch of other notifications committed in the same
-  transaction — which `send_multi` had promised but did not deliver.
-- **`separate` recipient mode now participates in retries.** A total retryable outage re-raises, as
-  the SMS backend already did; a partial success still never retries.
-- **A self-closing `<style/>` no longer eats the plaintext body.** `handle_startendtag` opened a
-  skip region that nothing closed, silently truncating or blanking the `text/plain` part.
-- **`py.typed` now ships**, so the advertised `Typing :: Typed` classifier is true.
-
-- Documentation said a notification enqueued with no worker running would "sit at `sending`
-  forever". Testing against a real worker showed otherwise, and the distinction matters: with no
-  worker the row stays at **`ready`** and is delivered once a worker starts, because `sending` is
-  set inside the worker. Only a worker dying *inside* the backend's `send()` strands a row at
-  `sending`.
-
-## [0.1.0] — unreleased
+## [0.1.0] — 2026-07-31
 
 First release. Everything below is new, so this entry describes the shape of the package rather
 than a diff.
@@ -105,10 +65,43 @@ nothing calls a send function.
 - System checks (`notifier.E001`–`E003`) reporting the three real requirements — the
   `django.contrib.postgres` app, a `DjangoTemplates` backend, and a PostgreSQL database — as one
   actionable message each.
-- Admin registration for all four models, with a read-only log and a re-send action.
+- Admin registration for all four models, with a read-only log and three ways to re-send: the
+  "Re-send selected" bulk action, a "Re-send" button on every changelist row, and "Re-send now" in
+  the change form's submit row. All three post to `<pk>/resend/`, which refuses anything but `POST`
+  — a URL that delivers mail must not be reachable by following a link — and all three require
+  `change_notification`. Pressing the change-form button saves nothing.
 - `notifier_send_test`, `notifier_retry_failed` and `notifier_prune_logs`.
+  `notifier_retry_failed --include-sending` reclaims rows stranded at `sending` by a worker that
+  died mid-delivery; it requires `--older-than`, because a row a live worker is legitimately working
+  on is indistinguishable from a stranded one.
 - `LOG_RETENTION_DAYS` defaulting to 90 days. Nothing prunes on a timer; the host schedules the
   command.
+
+### Corrected before release
+
+Nothing below ever shipped. They are recorded because each one is a promise the package makes, and a
+reader deciding whether to trust it deserves to know the promise was tested rather than assumed.
+
+- **`loaddata` does not send.** The `post_save` receiver ignored Django's `raw=True`, so restoring a
+  fixture or a serialized backup containing `status="ready"` rows delivered every one of them for
+  real.
+- **`notifier.E002` does not block multi-database projects.** It checked every `DATABASES` alias
+  rather than the one the router sends notifier's writes to, so an unrelated legacy MySQL or
+  analytics SQLite connection made every management command fail.
+- **One channel's failure does not strand its siblings.** Dispatch is registered with
+  `on_commit(..., robust=True)`, and the Celery enqueue is guarded, so a broken backend or a broker
+  outage cannot silently discard the pending dispatch of other notifications committed in the same
+  transaction — which `send_multi` had promised but did not deliver.
+- **`separate` recipient mode participates in retries.** A total retryable outage re-raises, as the
+  SMS backend already did; a partial success still never retries.
+- **A self-closing `<style/>` does not eat the plaintext body.** `handle_startendtag` opened a skip
+  region that nothing closed, silently truncating or blanking the `text/plain` part.
+- **`py.typed` ships**, so the advertised `Typing :: Typed` classifier is true.
+- Documentation said a notification enqueued with no worker running would "sit at `sending`
+  forever". Testing against a real worker showed otherwise, and the distinction matters: with no
+  worker the row stays at **`ready`** and is delivered once a worker starts, because `sending` is
+  set inside the worker. Only a worker dying *inside* the backend's `send()` strands a row at
+  `sending`.
 
 ### Requirements
 
@@ -123,5 +116,4 @@ Deduplication / idempotency, per-recipient delivery status, scheduled send, boun
 attachments, digests, throttling, and fallback between channels. `PRD.md` records the reasoning for
 each.
 
-[Unreleased]: https://github.com/ck-tech-nz/django-notifier-hub/compare/v0.1.0...HEAD
 [0.1.0]: https://github.com/ck-tech-nz/django-notifier-hub/releases/tag/v0.1.0
