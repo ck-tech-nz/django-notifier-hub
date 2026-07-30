@@ -1,0 +1,26 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+
+# Tooling
+.venv/
+.ruff_cache/
+.pytest_cache/
+.coverage
+coverage.xml
+htmlcov/
+.nox/
+.tox/
+
+# OS / editor
+.DS_Store
+.idea/
+
+# Local-only DB credentials for the test suite; never committed.
+.env.test
+
+# Real SMTP credentials for manual verification; never committed.
+.env.smtp

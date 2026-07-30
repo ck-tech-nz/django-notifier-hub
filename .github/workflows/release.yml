@@ -1,0 +1,98 @@
+name: Release
+
+# Tag-triggered publish via PyPI Trusted Publishing (OIDC). No API token exists
+# in repo secrets or on any machine -- PyPI verifies the OIDC claim (owner, repo,
+# workflow filename, environment) and mints a short-lived token per run, so
+# there is no long-lived credential to leak or rotate.
+#
+# A `v*rc*` tag goes to TestPyPI instead, giving a dry run of the real thing.
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    outputs:
+      prerelease: ${{ steps.classify.outputs.prerelease }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+
+      - name: The tag must match the packaged version
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          packaged="$(uv run python -c "
+          import tomllib, pathlib
+          print(tomllib.loads(pathlib.Path('pyproject.toml').read_text())['project']['version'])
+          ")"
+          if [ "$tag" != "$packaged" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME does not match pyproject version $packaged."
+            exit 1
+          fi
+
+      - id: classify
+        run: |
+          case "$GITHUB_REF_NAME" in
+            *rc*|*a*|*b*) echo "prerelease=true" >> "$GITHUB_OUTPUT" ;;
+            *)            echo "prerelease=false" >> "$GITHUB_OUTPUT" ;;
+          esac
+
+      - run: uv build
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+  testpypi:
+    needs: build
+    if: needs.build.outputs.prerelease == 'true'
+    runs-on: ubuntu-latest
+    environment: testpypi
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v5
+        with:
+          name: dist
+          path: dist/
+      - uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          repository-url: https://test.pypi.org/legacy/
+
+  pypi:
+    needs: build
+    if: needs.build.outputs.prerelease == 'false'
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v5
+        with:
+          name: dist
+          path: dist/
+      - uses: pypa/gh-action-pypi-publish@release/v1
+
+  github-release:
+    needs: pypi
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/download-artifact@v5
+        with:
+          name: dist
+          path: dist/
+      - run: gh release create "$GITHUB_REF_NAME" dist/* --generate-notes
+        env:
+          GH_TOKEN: ${{ github.token }}

@@ -1,0 +1,61 @@
+# Local stack for the example project and for manual verification.
+#
+#   docker compose up -d
+#   MailPit UI: http://localhost:8025
+#
+# Ports are deliberately unusual so this never collides with a Postgres, Redis
+# or SMTP server you already run. Nothing here is used by `pytest` -- the test
+# suite talks to whatever NOTIFIER_TEST_DB_* points at.
+#
+# No credentials here are secret: this stack is local-only and listens on
+# loopback. Do not reuse these values anywhere else.
+
+name: notifier-example
+
+services:
+  postgres:
+    image: postgres:18-alpine
+    ports:
+      - "127.0.0.1:45432:5432"
+    environment:
+      POSTGRES_USER: notifier
+      POSTGRES_PASSWORD: notifier
+      POSTGRES_DB: notifier_example
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U notifier -d notifier_example"]
+      interval: 2s
+      timeout: 3s
+      retries: 15
+    # Throwaway storage: this stack exists to verify behaviour, not to keep data.
+    # Postgres 18 images want the mount at /var/lib/postgresql, not the /data
+    # subdirectory the older images used -- the entrypoint refuses to start
+    # otherwise.
+    tmpfs:
+      - /var/lib/postgresql
+
+  # A real SMTP server with a web UI, so you can read the actual headers of the
+  # actual message. This is the point of the exercise: `locmem` in the test
+  # suite can never tell you how a server treats a Bcc-only envelope.
+  mailpit:
+    image: axllent/mailpit:latest
+    ports:
+      - "127.0.0.1:1025:1025"   # SMTP
+      - "127.0.0.1:8025:8025"   # web UI and REST API
+    environment:
+      MP_SMTP_AUTH_ACCEPT_ANY: 1
+      MP_SMTP_AUTH_ALLOW_INSECURE: 1
+    healthcheck:
+      test: ["CMD", "/mailpit", "readyz"]
+      interval: 2s
+      timeout: 3s
+      retries: 15
+
+  redis:
+    image: redis:8-alpine
+    ports:
+      - "127.0.0.1:46379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 2s
+      timeout: 3s
+      retries: 15

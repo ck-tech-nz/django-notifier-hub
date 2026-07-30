@@ -1,0 +1,165 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  FORCE_COLOR: "1"
+  UV_FROZEN: "1"
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+      - run: uv run ruff check --output-format=github .
+      - run: uv run ruff format --check .
+
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # Only combinations upstream still supports. Django 5.2 LTS runs to
+        # 2028-04, Django 6.0 to 2027-04; 3.13 and 3.14 are the two Python
+        # branches still in bugfix. See PRD "Version policy".
+        python-version: ["3.13", "3.14"]
+        django-version: ["5.2", "6.0"]
+        postgres-version: ["18"]
+        include:
+          # One job on the oldest supported PostgreSQL, so ArrayField, the GIN
+          # index and the array-equality check constraints are verified there
+          # too rather than only against latest.
+          - python-version: "3.13"
+            django-version: "5.2"
+            postgres-version: "14"
+
+    services:
+      postgres:
+        image: postgres:${{ matrix.postgres-version }}
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: notifier_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+
+    name: py${{ matrix.python-version }} · dj${{ matrix.django-version }} · pg${{ matrix.postgres-version }}
+
+    env:
+      NOTIFIER_TEST_DB_HOST: 127.0.0.1
+      NOTIFIER_TEST_DB_PORT: "5432"
+      NOTIFIER_TEST_DB_USER: postgres
+      NOTIFIER_TEST_DB_PASSWORD: postgres
+      NOTIFIER_TEST_DB_NAME: notifier_test
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install with the pinned Django
+        run: |
+          uv sync --all-extras --group dev
+          uv pip install "Django~=${{ matrix.django-version }}.0"
+
+      - name: Show the resolved versions
+        run: uv run python -c "import django, sys; print(sys.version); print(django.get_version())"
+
+      - name: Migrations are complete and committed
+        run: uv run django-admin makemigrations --check --dry-run --settings=tests.settings --pythonpath=.
+
+      - name: Tests
+        run: uv run pytest --cov=notifier --cov-report=term-missing --cov-fail-under=90
+
+      - name: Tests, headless configuration
+        run: uv run pytest --ds=tests.settings_minimal
+
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+      - run: uv build
+
+      - name: Django is the only hard dependency
+        # A genuinely separate venv: `uv run --no-project` still reuses a .venv
+        # in the working directory, which would quietly let the celery extra
+        # satisfy an import that must work without it.
+        run: |
+          uv venv /tmp/clean --python 3.13
+          uv pip install --python /tmp/clean/bin/python dist/*.whl
+          /tmp/clean/bin/python - <<'EOF'
+          import importlib.util
+          assert importlib.util.find_spec("django"), "Django should be pulled in as a dependency"
+          assert not importlib.util.find_spec("celery"), "celery must stay an extra"
+
+          import notifier
+          print("version:", notifier.__version__)
+
+          # tasks.py must import behind its guard, and say what to do when used.
+          import notifier.tasks as tasks
+          assert tasks.CELERY_AVAILABLE is False
+          try:
+              tasks.send_notification_task.delay(1)
+          except RuntimeError as exc:
+              assert "django-notifier-hub[celery]" in str(exc), exc
+          else:
+              raise AssertionError("delay() should refuse without celery installed")
+          EOF
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+  future-django:
+    # Early warning for Django 6.1, expected 2026-08. Allowed to fail: it
+    # reports breakage without blocking a merge.
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    services:
+      postgres:
+        image: postgres:18
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: notifier_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      NOTIFIER_TEST_DB_HOST: 127.0.0.1
+      NOTIFIER_TEST_DB_PORT: "5432"
+      NOTIFIER_TEST_DB_USER: postgres
+      NOTIFIER_TEST_DB_PASSWORD: postgres
+      NOTIFIER_TEST_DB_NAME: notifier_test
+    steps:
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+          python-version: "3.14"
+      - run: |
+          uv sync --all-extras --group dev
+          uv pip install --prerelease=allow "Django @ git+https://github.com/django/django.git@main"
+      - run: uv run pytest -q
